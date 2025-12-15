@@ -43,7 +43,7 @@ class TestRunner:
         dataset_splits=None, 
         evaluation_output_path=None,
         output_format: str = "jsonl",
-        max_concurrency: int = 0
+        max_concurrency: int = 10
     ):
         self.test_name = test_name
         self.dataset_path = test_dataset_path
