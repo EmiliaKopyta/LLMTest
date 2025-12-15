@@ -34,14 +34,14 @@ class TestRunner:
     """
     def __init__(
         self, 
-        test_name, 
-        test_dataset_path, 
-        model_provider, 
-        model_name,
-        prompt_builder, 
-        system_prompt=None,
-        dataset_splits=None, 
-        evaluation_output_path=None,
+        test_name:str, 
+        test_dataset_path:str, 
+        model_provider:str, 
+        model_name:str,
+        prompt_builder:callable, 
+        system_prompt: str | None=None,
+        dataset_splits: list[str] | None=None, 
+        evaluation_output_path: str | None=None,
         output_format: str = "jsonl",
         max_concurrency: int = 10
     ):
