@@ -1,8 +1,53 @@
 import os
 import asyncio
+import pandas as pd
 from datetime import datetime
 from lib.PromptHandler import PromptHandler
 from lib.data.DatasetLoader import DatasetLoader
+
+async def generate_single_response(handler, prompt, idx: int):
+    """Generates response for a single prompt."""
+    try:
+        response = await handler.generate_response(prompt)
+        return response.output
+    except Exception as e:
+        print(f"[!] Skipping row {idx} due to error: {e}")
+        return None
+
+
+async def generate_sequential(df: pd.DataFrame, prompt_builder, handler):
+    """Generates responses sequentially."""
+    answers = []
+    for idx, row in df.iterrows():
+        prompt = prompt_builder(row)
+        output = await generate_single_response(handler, prompt, idx)
+        if output is not None:
+            answers.append(output)
+    return answers
+
+
+async def generate_concurrent(df: pd.DataFrame, prompt_builder, handler, max_concurrency: int):
+    """Generates responses cocurrently."""
+    sem = asyncio.Semaphore(max_concurrency)
+
+    async def safe_generate(idx, prompt):
+        async with sem:
+            return await generate_single_response(handler, prompt, idx)
+
+    tasks = [
+        safe_generate(idx, prompt_builder(row))
+        for idx, row in df.iterrows()
+    ]
+    responses = await asyncio.gather(*tasks, return_exceptions=False)
+    return [r for r in responses if r is not None]
+
+
+async def generate_answers(df: pd.DataFrame, prompt_builder, handler, max_concurrency: int):
+    """Router for choosing the type of response generation."""
+    if max_concurrency == 0:
+        return await generate_sequential(df, prompt_builder, handler)
+    else:
+        return await generate_concurrent(df, prompt_builder, handler, max_concurrency)
 
 class TestRunner:
     """
@@ -32,16 +77,17 @@ class TestRunner:
         - Dataset rows can be filtered with `selection` (single index, range, or random).
         - `run_model()` is asynchronous and should be awaited.
     """
+
     def __init__(
-        self, 
-        test_name:str, 
-        test_dataset_path:str, 
-        model_provider:str, 
-        model_name:str,
-        prompt_builder:callable, 
-        system_prompt: str | None=None,
-        dataset_splits: list[str] | None=None, 
-        evaluation_output_path: str | None=None,
+        self,
+        test_name: str,
+        test_dataset_path: str,
+        model_provider: str,
+        model_name: str,
+        prompt_builder: callable,
+        system_prompt: str | None = None,
+        dataset_splits: list[str] | None = None,
+        evaluation_output_path: str | None = None,
         output_format: str = "jsonl",
         max_concurrency: int = 10
     ):
@@ -115,7 +161,6 @@ class TestRunner:
         print(f"[✓] Results saved to: {output_file}")
         return output_file
 
-
     async def run_model(self, selection: str = None):
         """
         Run the model on the dataset and save results.
@@ -133,23 +178,7 @@ class TestRunner:
         self.load_dataset(selection=selection)
         df = self.df.copy()
 
-        if self.max_concurrency == 0:
-            answers = []
-            for _, row in df.iterrows():
-                prompt = self.prompt_builder(row)
-                response = await self.handler.generate_response(prompt)
-                answers.append(response.output)
-        else:
-            sem = asyncio.Semaphore(self.max_concurrency)
-
-            async def safe_generate(prompt):
-                async with sem:
-                    return await self.handler.generate_response(prompt)
-
-            tasks = [safe_generate(self.prompt_builder(row)) for _, row in df.iterrows()]
-            responses = await asyncio.gather(*tasks)
-            answers = [r.output for r in responses]
-
+        answers = await generate_answers(df, self.prompt_builder, self.handler, self.max_concurrency)
 
         df["model_answer"] = answers
         output_path = self.save_results(df)
