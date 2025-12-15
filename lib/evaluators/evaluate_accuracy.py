@@ -1,0 +1,163 @@
+import ast
+import os
+import json
+import pandas as pd
+
+
+def normalize(text: str) -> str:
+    """Normalize text to lowercase stripped string."""
+    if text is None:
+        return ""
+    return str(text).strip().lower()
+
+
+def parse_choices(raw):
+    """Normalize the 'choices' column into a list of strings."""
+    if isinstance(raw, list):
+        return [str(c).strip() for c in raw]
+    
+    if isinstance(raw, str):
+        try:
+            parsed = ast.literal_eval(raw)
+            if isinstance(parsed, list):
+                return [str(c).strip() for c in parsed]
+        except Exception:
+            pass
+        cleaned = raw.strip("[]").replace("'", "").replace('"', "")
+        return [c.strip() for c in cleaned.split() if c]
+    return [str(raw).strip()]
+
+
+def load_jsonl(path: str) -> pd.DataFrame:
+    """Load JSONL file into a DataFrame with validation."""
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"File {path} does not exist.")
+    try:
+        df = pd.read_json(path, lines=True)
+    except ValueError as e:
+        raise ValueError(f"Invalid JSONL format in {path}: {e}")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"Encoding error in {path}: {e}")
+    if df.empty:
+        raise ValueError("File is empty.")
+    return df
+
+def evaluate_row(row, answer_column, model_answer_column, choices_column):
+    """Evaluate a single row and return correctness + mismatch info if needed."""
+    if choices_column not in row or answer_column not in row or model_answer_column not in row:
+        raise KeyError("Row is missing required fields.")
+    
+    choices = parse_choices(row[choices_column])
+
+    try:
+        correct_index = int(row[answer_column])
+        correct_answer = normalize(choices[correct_index])
+        correct_letter = chr(65 + correct_index).lower()
+    except Exception:
+        correct_answer = normalize(row[answer_column])
+        correct_letter = None
+
+    model_answer = normalize(row[model_answer_column])
+    if len(model_answer) > 2 and model_answer[1] == ".":
+        model_answer = model_answer[2:].strip()
+
+    is_correct = (model_answer == correct_answer or
+                  (correct_letter and model_answer.startswith(correct_letter)))
+
+    mismatch = None
+    if not is_correct:
+        mismatch = {
+            "question": row.get("question", ""),
+            "expected": correct_answer,
+            "predicted": row[model_answer_column],
+        }
+
+    return is_correct, mismatch
+
+
+def summarize_results(total, correct, mismatches):
+    """Build the final evaluation report."""
+    if mismatches < 0:
+        raise ValueError("max_mismatches must be non-negative.")
+
+    accuracy = correct / total if total > 0 else 0.0
+    return {
+        "accuracy": round(accuracy, 4),
+        "total": total,
+        "correct": correct,
+        "incorrect": total - correct,
+        "mismatches": mismatches[:10],
+    }
+
+def save_report_jsonl(result: dict, output_path: str):
+    """Save evaluation report dictionary to a JSONL file."""
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            for key, value in result.items():
+                f.write(json.dumps({key: value}, ensure_ascii=False) + "\n")
+    except Exception as e:
+        raise IOError(f"Failed to save results to {output_path}: {e}")
+
+def evaluate_accuracy(
+    input_path: str,
+    answer_column: str = "answer",
+    model_answer_column: str = "model_answer",
+    choices_column: str = "choices",
+    max_mismatches: int = 10,
+    output_path: str = None
+):
+    """
+    Evaluate accuracy for a multiple-choice task stored in JSONL format.
+
+    Parameters:
+    input_path : str
+        Path to the JSONL file with model outputs.
+    answer_column : str, default="answer"
+        Column name containing the correct answer (index or string).
+    model_answer_column : str, default="model_answer"
+        Column name containing the model's predicted answer.
+    choices_column : str, default="choices"
+        Column name containing the list of possible choices.
+    max_mismatches : int, default=10
+        Maximum number of mismatches to include in the report.
+    output_path : str, optional
+        Path to save the evaluation summary as JSONL.
+
+    Returns:
+    dict
+        Dictionary with keys:
+        - `accuracy`: float, overall accuracy
+        - `total`: int, number of samples
+        - `correct`: int, number of correct predictions
+        - `incorrect`: int, number of incorrect predictions
+        - `mismatches`: list of dicts with up to `max_mismatches` examples
+
+    Example:
+    >>> report = evaluate_accuracy_jsonl(input_path)
+    """
+    df = load_jsonl(input_path)
+
+    required_cols = [answer_column, model_answer_column, choices_column]
+    for col in required_cols:
+        if col not in df.columns:
+            raise KeyError(f"Missing required column: {col}")
+
+    total = 0
+    correct = 0
+    mismatches = []
+
+    for _, row in df.iterrows():
+        is_correct, mismatch = evaluate_row(row, answer_column, model_answer_column, choices_column)
+        total += 1
+        if is_correct:
+            correct += 1
+        else:
+            mismatches.append(mismatch)
+
+    result = summarize_results(total, correct, mismatches)
+    result["mismatches"] = mismatches[:max_mismatches]
+
+    if output_path:
+        save_report_jsonl(result, output_path)
+
+    return result

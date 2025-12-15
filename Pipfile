@@ -6,8 +6,15 @@ name = "pypi"
 [packages]
 pydantic-ai = "*"
 dotenv = "*"
+rouge-score = "*"
+bert-score = "*"
+pyarrow = "*"
+pandas = "*"
+scikit-learn = "*"
+seaborn = "*"
 
 [dev-packages]
+ipywidgets = "*"
 ipykernel = "*"
 
 [requires]
