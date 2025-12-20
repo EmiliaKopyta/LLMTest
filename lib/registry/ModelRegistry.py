@@ -79,7 +79,13 @@ class ModelRegistry:
         Register a new model under and existing provider.
         """
         provider_name = provider_name.lower()
-        cls._registry.setdefault(provider_name, {})
+
+        if provider_name not in cls._registry:
+            raise ValueError(
+                f"Provider '{provider_name}' is not registered. "
+                f"Available providers: {list(cls._registry.keys())}"
+            )
+        
         if model_name in cls._registry[provider_name]:
             raise ValueError(
                 f"Model '{model_name}' is already registered under provider '{provider_name}'."
