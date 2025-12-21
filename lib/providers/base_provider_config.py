@@ -32,6 +32,10 @@ class BaseProviderConfig(ABC):
     def provider_name(self) -> str:
         pass
 
+    @abstractmethod
+    def get_models(self) -> dict[str, Any]:
+        pass
+
     def require_key(self, key: str | None, key_name: str) -> str:
         """Ensure that an API key is present. Raise a clear error if missing."""
         if not key:
