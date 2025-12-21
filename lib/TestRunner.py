@@ -14,7 +14,6 @@ async def generate_single_response(handler, prompt, idx: int):
         print(f"[!] Skipping row {idx} due to error: {e}")
         return None
 
-
 async def generate_sequential(df: pd.DataFrame, prompt_builder, handler):
     """Generates responses sequentially."""
     answers = []
@@ -24,7 +23,6 @@ async def generate_sequential(df: pd.DataFrame, prompt_builder, handler):
         if output is not None:
             answers.append(output)
     return answers
-
 
 async def generate_concurrent(df: pd.DataFrame, prompt_builder, handler, max_concurrency: int):
     """Generates responses cocurrently."""
@@ -40,7 +38,6 @@ async def generate_concurrent(df: pd.DataFrame, prompt_builder, handler, max_con
     ]
     responses = await asyncio.gather(*tasks, return_exceptions=False)
     return [r for r in responses if r is not None]
-
 
 async def generate_answers(df: pd.DataFrame, prompt_builder, handler, max_concurrency: int):
     """Router for choosing the type of response generation."""
