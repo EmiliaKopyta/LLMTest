@@ -3,13 +3,11 @@ import os
 import json
 import pandas as pd
 
-
 def normalize(text: str) -> str:
     """Normalize text to lowercase stripped string."""
     if text is None:
         return ""
     return str(text).strip().lower()
-
 
 def parse_choices(raw):
     """Normalize the 'choices' column into a list of strings."""
@@ -27,7 +25,6 @@ def parse_choices(raw):
         return [c.strip() for c in cleaned.split() if c]
     return [str(raw).strip()]
 
-
 def load_jsonl(path: str) -> pd.DataFrame:
     """Load JSONL file into a DataFrame with validation."""
     if not os.path.exists(path):
@@ -42,27 +39,54 @@ def load_jsonl(path: str) -> pd.DataFrame:
         raise ValueError("File is empty.")
     return df
 
-def evaluate_row(row, answer_column, model_answer_column, choices_column):
-    """Evaluate a single row and return correctness + mismatch info if needed."""
+def evaluate_row_index_mode(row, answer_column, model_answer_column, choices_column):
+    """Evaluate a row assuming the correct answer is an index into choices."""
+    choices = parse_choices(row[choices_column])
+    raw_answer = row[answer_column]
+
+    if not isinstance(raw_answer, int) and not (isinstance(raw_answer, str) and raw_answer.isdigit()):
+        raise ValueError(f"Expected index in column '{answer_column}', got: {raw_answer}")
+
+    idx = int(raw_answer)
+    if idx < 0 or idx >= len(choices):
+        raise ValueError(f"Index {idx} out of range for choices: {choices}")
+
+    correct_answer = normalize(choices[idx])
+    correct_letter = chr(65 + idx).lower()
+
+    return correct_answer, correct_letter
+
+def evaluate_row_text_mode(row, answer_column):
+    """Evaluate a row assuming the correct answer is a text string."""
+    raw_answer = row[answer_column]
+    correct_answer = normalize(raw_answer)
+    correct_letter = None
+    return correct_answer, correct_letter
+
+def evaluate_row(row, answer_column, model_answer_column, choices_column, mode="index"):
+    """Evaluate a single row using explicit mode: 'index' or 'text'."""
     if choices_column not in row or answer_column not in row or model_answer_column not in row:
         raise KeyError("Row is missing required fields.")
-    
-    choices = parse_choices(row[choices_column])
 
-    try:
-        correct_index = int(row[answer_column])
-        correct_answer = normalize(choices[correct_index])
-        correct_letter = chr(65 + correct_index).lower()
-    except Exception:
-        correct_answer = normalize(row[answer_column])
-        correct_letter = None
+    if mode == "index":
+        correct_answer, correct_letter = evaluate_row_index_mode(
+            row, answer_column, model_answer_column, choices_column
+        )
+    elif mode == "text":
+        correct_answer, correct_letter = evaluate_row_text_mode(
+            row, answer_column
+        )
+    else:
+        raise ValueError("mode must be 'index' or 'text'")
 
     model_answer = normalize(row[model_answer_column])
     if len(model_answer) > 2 and model_answer[1] == ".":
         model_answer = model_answer[2:].strip()
 
-    is_correct = (model_answer == correct_answer or
-                  (correct_letter and model_answer.startswith(correct_letter)))
+    is_correct = (
+        model_answer == correct_answer or
+        (correct_letter and model_answer.startswith(correct_letter))
+    )
 
     mismatch = None
     if not is_correct:
@@ -73,7 +97,6 @@ def evaluate_row(row, answer_column, model_answer_column, choices_column):
         }
 
     return is_correct, mismatch
-
 
 def summarize_results(total, correct, mismatches):
     """Build the final evaluation report."""
@@ -103,6 +126,7 @@ def evaluate_accuracy(
     answer_column: str = "answer",
     model_answer_column: str = "model_answer",
     choices_column: str = "choices",
+    mode = "index",
     max_mismatches: int = 10,
     output_path: str = None
 ):
@@ -118,6 +142,10 @@ def evaluate_accuracy(
         Column name containing the model's predicted answer.
     choices_column : str, default="choices"
         Column name containing the list of possible choices.
+    mode : str, default="index"
+        Determines how the correct answer should be interpreted. Supported values:
+        - "index": the value in `answer_column` is treated as an integer index pointing to the correct option inside `choices_column`.
+        - "text": the value in `answer_column` is treated as a literal text string and compared directly to the model prediction.
     max_mismatches : int, default=10
         Maximum number of mismatches to include in the report.
     output_path : str, optional
@@ -147,7 +175,7 @@ def evaluate_accuracy(
     mismatches = []
 
     for _, row in df.iterrows():
-        is_correct, mismatch = evaluate_row(row, answer_column, model_answer_column, choices_column)
+        is_correct, mismatch = evaluate_row(row, answer_column, model_answer_column, choices_column, mode=mode)
         total += 1
         if is_correct:
             correct += 1
