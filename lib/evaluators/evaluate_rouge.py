@@ -3,11 +3,12 @@ import argparse
 from rouge_score import rouge_scorer
 import os
 
-def normalize(text: str) -> str:
+def normalize(text: str, case_sensitive: bool = True) -> str:
     """Normalize text to lowercase stripped string."""
     if text is None:
         return ""
-    return str(text).strip().lower()
+    text = str(text).strip()
+    return text if case_sensitive else text.lower()
 
 def load_jsonl(path: str) -> list[dict]:
     """Load a JSONL file into a list of dicts."""
@@ -25,14 +26,14 @@ def load_jsonl(path: str) -> list[dict]:
         raise ValueError("File is empty or contains no valid JSON lines.")
     return data
 
-def compute_rouge_scores(data, reference_column="summary", model_answer_column="model_answer"):
+def compute_rouge_scores(data, reference_column="summary", model_answer_column="model_answer", case_sensitive: bool = True):
     """Compute ROUGE scores for each record and return lists of F1 scores."""
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
     rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores = [], [], []
 
     for item in data:
-        reference = normalize(item.get(reference_column, ""))
-        predicted = normalize(item.get(model_answer_column, ""))
+        reference = normalize(item.get(reference_column, ""), case_sensitive=case_sensitive)
+        predicted = normalize(item.get(model_answer_column, ""), case_sensitive=case_sensitive)
         if not reference or not predicted:
             continue
         scores = scorer.score(reference, predicted)
@@ -89,6 +90,7 @@ def evaluate_rouge(
     input_path: str,
     reference_column: str = "summary",
     model_answer_column: str = "model_answer",
+    case_sensitive: bool = False,
     max_mismatches: int = 10,
     output_path: str = None
 ):
@@ -106,6 +108,8 @@ def evaluate_rouge(
         Column name containing the reference text.
     model_answer_column : str, default="model_answer"
         Column name containing the model-generated text.
+    case_sensitive : bool, default=False
+        Controls whether ROUGE should treat uppercase and lowercase characters as distinct.
     max_mismatches : int, default=10
         Maximum number of worst-scoring examples to include in the report.
     output_path : str, optional
@@ -124,7 +128,7 @@ def evaluate_rouge(
     """
     data = load_jsonl(input_path)
     rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores = compute_rouge_scores(
-        data, reference_column, model_answer_column
+        data, reference_column, model_answer_column, case_sensitive=case_sensitive
     )
     result = summarize_rouge(rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores)
 
