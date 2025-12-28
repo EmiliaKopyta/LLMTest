@@ -1,5 +1,8 @@
 from typing import Any, TYPE_CHECKING
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from lib.providers.base_provider_config import BaseProviderConfig
@@ -64,19 +67,19 @@ class ModelRegistry:
         env_key = f"{pname.upper()}_API_KEY"
 
         if not os.environ.get(env_key):
-            print(f"[!] Skipping provider '{pname}': missing {env_key}")
+            logger.warning("Skipping provider '%s': missing %s", pname, env_key)
             return
 
         if pname in cls._registry:
             raise ValueError(f"Provider '{pname}' is already registered.")
 
         provider.register_models()
-        print(f"Registered provider '{pname}'")
+        logger.info("Registered provider '%s'", pname)
 
     @classmethod
     def add_model(cls, provider_name: str, model_name: str, model_obj: object):
         """
-        Register a new model under and existing provider.
+        Register a new model under an existing provider.
         """
         provider_name = provider_name.lower()
 
@@ -85,19 +88,19 @@ class ModelRegistry:
                 f"Provider '{provider_name}' is not registered. "
                 f"Available providers: {list(cls._registry.keys())}"
             )
-        
+
         if model_name in cls._registry[provider_name]:
             raise ValueError(
                 f"Model '{model_name}' is already registered under provider '{provider_name}'."
             )
         cls._registry[provider_name][model_name] = model_obj
-        print(f"Model '{model_name}' added to provider '{provider_name}'.")
+        logger.info("Model '%s' added to provider '%s'", model_name, provider_name)
 
     @classmethod
     def remove_model(cls, provider_name: str, model_name: str):
         provider_name = provider_name.lower()
         if  provider_name in cls._registry and model_name in cls._registry[provider_name]:
             del cls._registry[provider_name][model_name]
-            print(f"Model '{model_name}' removed from provider '{provider_name}'.")
+            logger.info("Model '%s' removed from provider '%s'", model_name, provider_name)
         else:
-            print(f"Model '{model_name}' not found under provider '{provider_name}'. Nothing to remove.")
+            logger.warning("Model '%s' not found under provider '%s'. Nothing to remove.", model_name, provider_name)
