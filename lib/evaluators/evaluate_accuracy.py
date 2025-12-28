@@ -3,11 +3,13 @@ import os
 import json
 import pandas as pd
 
+
 def normalize(text: str) -> str:
     """Normalize text to lowercase stripped string."""
     if text is None:
         return ""
     return str(text).strip().lower()
+
 
 def parse_choices(raw):
     """Normalize the 'choices' column into a list of strings."""
@@ -24,6 +26,7 @@ def parse_choices(raw):
         cleaned = raw.strip("[]").replace("'", "").replace('"', "")
         return [c.strip() for c in cleaned.split() if c]
     return [str(raw).strip()]
+
 
 def load_jsonl(path: str) -> pd.DataFrame:
     """Load JSONL file into a DataFrame with validation."""

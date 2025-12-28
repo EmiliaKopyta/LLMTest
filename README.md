@@ -178,4 +178,5 @@ A benchmark run produces two artifacts:
 ### Evaluations
 Evaluations are provided as callables operating on result files produced by TestRunner.
 Both synchronous metrics (e.g. ROUGE, BERTScore) and asynchronous LLM-based judges are supported.
+
 The evaluation name is user-defined and used only for labeling results.
