@@ -4,6 +4,9 @@ import pandas as pd
 from datetime import datetime
 from lib.PromptHandler import PromptHandler
 from lib.data.DatasetLoader import DatasetLoader
+import logging
+
+logger = logging.getLogger(__name__)
 
 async def generate_single_response(handler, prompt, idx: int):
     """Generates response for a single prompt."""
@@ -11,7 +14,7 @@ async def generate_single_response(handler, prompt, idx: int):
         response = await handler.generate_response(prompt)
         return response.output
     except Exception as e:
-        print(f"[!] Skipping row {idx} due to error: {e}")
+        logger.warning("Skipping row %s due to error: %s", idx, e, exc_info=True)
         return None
 
 async def generate_sequential(df: pd.DataFrame, prompt_builder, handler):
@@ -20,8 +23,7 @@ async def generate_sequential(df: pd.DataFrame, prompt_builder, handler):
     for idx, row in df.iterrows():
         prompt = prompt_builder(row)
         output = await generate_single_response(handler, prompt, idx)
-        if output is not None:
-            answers.append(output)
+        answers.append(output)
     return answers
 
 async def generate_concurrent(df: pd.DataFrame, prompt_builder, handler, max_concurrency: int):
@@ -37,13 +39,15 @@ async def generate_concurrent(df: pd.DataFrame, prompt_builder, handler, max_con
         for idx, row in df.iterrows()
     ]
     responses = await asyncio.gather(*tasks, return_exceptions=False)
-    return [r for r in responses if r is not None]
+    return responses
 
 async def generate_answers(df: pd.DataFrame, prompt_builder, handler, max_concurrency: int):
     """Router for choosing the type of response generation."""
     if max_concurrency == 0:
+        logger.info("Running sequential generation (%d rows)", len(df))
         return await generate_sequential(df, prompt_builder, handler)
     else:
+        logger.info("Running concurrent generation (%d rows, max_concurrency=%d)", len(df), max_concurrency)
         return await generate_concurrent(df, prompt_builder, handler, max_concurrency)
 
 class TestRunner:
@@ -111,6 +115,8 @@ class TestRunner:
 
     def load_dataset(self, selection: str = None):
         """Load dataset into memory and apply optional row selection."""
+        logger.info("Loading dataset: %s", self.dataset_path)
+
         if self.dataset_splits:
             df = self.loader.load(self.dataset_path, split=self.dataset_splits)
         else:
@@ -120,6 +126,7 @@ class TestRunner:
             df = self._select_rows(df, selection)
 
         self.df = df
+        logger.info("Loaded dataset with %d rows", len(df))
 
     def _select_rows(self, df, selection: str):
         """Helper to filter rows by index, range, or random selection."""
@@ -155,7 +162,7 @@ class TestRunner:
         else:
             raise ValueError(f"Unsupported output format: {self.output_format}")
 
-        print(f"[✓] Results saved to: {output_file}")
+        logger.info("Results saved to: %s", output_file)
         return output_file
 
     async def run_model(self, selection: str = None):
@@ -172,6 +179,8 @@ class TestRunner:
         Returns:
             str: Path to saved CSV file with model answers.
         """
+        logger.info("Running test '%s' using provider=%s model=%s", self.test_name, self.model_provider, self.model_name)
+        
         self.load_dataset(selection=selection)
         df = self.df.copy()
 
@@ -179,4 +188,5 @@ class TestRunner:
 
         df["model_answer"] = answers
         output_path = self.save_results(df)
+        logger.info("Test '%s' completed successfully", self.test_name)
         return output_path
