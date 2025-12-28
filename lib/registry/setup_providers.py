@@ -1,5 +1,8 @@
 from .ModelRegistry import ModelRegistry
 from lib.providers import OpenAIConfig, AnthropicConfig, GoogleConfig, OpenRouterConfig
+import logging
+
+logger = logging.getLogger(__name__)
 
 def register_all_models():
     """
@@ -13,4 +16,4 @@ def register_all_models():
             config = ProviderCls()
             ModelRegistry.register_provider(config)
         except ValueError as e:
-            print(f"[!] Skipping {ProviderCls.__name__}: {e}")
+            logger.warning("Skipping provider '%s': %s", ProviderCls.__name__ , e)
