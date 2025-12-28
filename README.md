@@ -161,4 +161,21 @@ LLMTest includes several built-in evaluation scripts for common tasks:
 These evaluators are designed to work directly with result JSONL files produced by TestRunner.
 Just pass the output file and specify the relevant columns (e.g. reference, model_answer), no extra preprocessing needed.
 
-## License
+## Benchmark Runner 
+The **BenchmarkRunner** allows running the same test across multiple models and evaluating their outputs in a unified way.
+
+It builds on top of **TestRunner** and:
+- executes one TestRunner per model,
+- ensures all models use the same dataset selection and prompt builder,
+- aggregates all model outputs into a single benchmark dataset,
+- applies one or more evaluation functions to each model’s results.
+
+### Outputs
+A benchmark run produces two artifacts:
+- A merged dataset containing outputs from all tested models, enriched with model and benchmark metadata.
+- A summary of evaluation results for each model and evaluation method.
+
+### Evaluations
+Evaluations are provided as callables operating on result files produced by TestRunner.
+Both synchronous metrics (e.g. ROUGE, BERTScore) and asynchronous LLM-based judges are supported.
+The evaluation name is user-defined and used only for labeling results.
