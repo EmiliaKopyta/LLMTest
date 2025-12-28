@@ -86,7 +86,7 @@ class TestRunner:
         model_provider: str,
         model_name: str,
         prompt_builder: callable,
-        system_prompt: str | None = None,
+        system_prompt: str | list[str] = "",
         dataset_splits: list[str] | None = None,
         evaluation_output_path: str | None = None,
         output_format: str = "jsonl",
