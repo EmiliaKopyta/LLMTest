@@ -87,8 +87,8 @@ class BenchmarkRunner:
     and runs multiple evaluation functions on the generated results.
 
     Outputs:
-    - benchmark_dataset.(jsonl|csv)
-    - benchmark_report.jsonl
+    - benchmark_dataset.(json|jsonl|csv)
+    - benchmark_report.(json|jsonl|csv)
     """
 
     def __init__(
@@ -161,4 +161,5 @@ class BenchmarkRunner:
             "models": [f"{m.provider}:{m.model_name}" for m in self.models],
             "selection": selection,
             "timestamp": timestamp
+
         }
