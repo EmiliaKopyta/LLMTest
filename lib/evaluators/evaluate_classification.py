@@ -110,7 +110,7 @@ def save_jsonl(result: dict, output_path: str):
     except Exception as e:
         raise IOError(f"Failed to save results to {output_path}: {e}")
 
-def evaluate_classification_jsonl(
+def evaluate_classification(
     input_path: str,
     label_column: str = "label",
     model_answer_column: str = "model_answer",
