@@ -103,16 +103,13 @@ def evaluate_row(row, answer_column, model_answer_column, choices_column, mode="
 
 def summarize_results(total, correct, mismatches):
     """Build the final evaluation report."""
-    if mismatches < 0:
-        raise ValueError("max_mismatches must be non-negative.")
-
     accuracy = correct / total if total > 0 else 0.0
     return {
         "accuracy": round(accuracy, 4),
         "total": total,
         "correct": correct,
         "incorrect": total - correct,
-        "mismatches": mismatches[:10],
+        "mismatches": mismatches,
     }
 
 def save_report_jsonl(result: dict, output_path: str):
@@ -186,6 +183,8 @@ def evaluate_accuracy(
             mismatches.append(mismatch)
 
     result = summarize_results(total, correct, mismatches)
+    if max_mismatches < 0:
+        raise ValueError("max_mismatches must be non-negative.")
     result["mismatches"] = mismatches[:max_mismatches]
 
     if output_path:
