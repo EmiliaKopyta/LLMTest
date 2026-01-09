@@ -22,15 +22,15 @@ class EvaluationSpec:
         self.name = name
         self.evaluator = evaluator
 
-def make_benchmark_root(output_dir: str, test_name: str) -> str:
-    """Create and return the benchmark output directory."""
-    path = os.path.join(output_dir, test_name)
-    os.makedirs(path, exist_ok=True)
-    return path
-
-def load_results_df(results_path: str, test_name: str, model: ModelSpec) -> pd.DataFrame:
+def load_results_df(results_path: str, test_name: str, model: ModelSpec, output_format: str = "jsonl") -> pd.DataFrame:
     """Load model results and enrich them with benchmark metadata."""
-    df = pd.read_json(results_path, lines=True)
+    ext = os.path.splitext(results_path)[1].lower()
+
+    if output_format.lower() == "csv" or ext == ".csv":
+        df = pd.read_csv(results_path)
+    else:
+        df = pd.read_json(results_path, lines=True)
+
     df["benchmark"] = test_name
     df["model_provider"] = model.provider
     df["model_name"] = model.model_name
@@ -38,7 +38,7 @@ def load_results_df(results_path: str, test_name: str, model: ModelSpec) -> pd.D
     df["sample_id"] = df.index
     return df
 
-async def run_evaluation(eval_spec: EvaluationSpec, results_path: str, test_name: str, model: ModelSpec) -> dict:
+async def run_evaluation(eval_spec: EvaluationSpec, results_path: str, test_name: str, model: ModelSpec, system_prompt: str | list[str]) -> dict:
     """Run a single evaluation on a model result file."""
     logger.info("Evaluating %s:%s with %s", model.provider, model.model_name, eval_spec.name)
     
@@ -50,45 +50,67 @@ async def run_evaluation(eval_spec: EvaluationSpec, results_path: str, test_name
         "model": f"{model.provider}:{model.model_name}",
         "provider": model.provider,
         "model_name": model.model_name,
+        "system_prompt": system_prompt,
         "evaluation": eval_spec.name,
         "metrics": metrics
     }
 
-def save_benchmark_dataset(df: pd.DataFrame, output_path: str, output_format: str):
+def _ext_from_format(output_format: str) -> str:
+    if output_format not in ("jsonl", "json", "csv"):
+        raise ValueError("output_format must be 'jsonl', 'json', or 'csv'")
+    return output_format
+
+def resolve_benchmark_path(benchmark_name: str, output_format: str, kind: str, base_dir: str, timestamp: str, output_path: str | None = None) -> str:
+    """Return the output file path for a benchmark dataset or report."""
+    ext = _ext_from_format(output_format)
+
+    if output_path:
+        return output_path
+
+    folder = os.path.join(base_dir, benchmark_name)
+    os.makedirs(folder, exist_ok=True)
+    return os.path.join(folder, f"{kind}_{timestamp}.{ext}")
+
+def save_benchmark_dataset(df: pd.DataFrame, output_path: str, output_format: str) -> str:
     """Save the combined benchmark dataset."""
     if output_format == "jsonl":
         df.to_json(output_path, orient="records", lines=True)
     elif output_format == "json":
         df.to_json(output_path, orient="records", indent=2)
-    else:
+    elif output_format == "csv":
         df.to_csv(output_path, index=False)
+    else:
+        raise ValueError("output_format must be 'jsonl', 'json', or 'csv'")
 
-def save_benchmark_report(report_rows: list[dict], report_path: str, output_format: str):
+    logger.info("Benchmark dataset saved to: %s", output_path)
+    return output_path
+
+def save_benchmark_report(report_rows: list[dict], report_path: str, output_format: str) -> str:
     """Save the benchmark evaluation report."""
     if output_format == "jsonl":
         with open(report_path, "w", encoding="utf-8") as f:
             for row in report_rows:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
-
     elif output_format == "json":
         with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(report_rows, f, ensure_ascii=False, indent=2)
-
+            json.dump(report_rows, f, indent=2, ensure_ascii=False)
     elif output_format == "csv":
         pd.DataFrame(report_rows).to_csv(report_path, index=False)
-
     else:
-        raise ValueError("report_format must be 'jsonl', 'json', or 'csv'")
+        raise ValueError("output_format must be 'jsonl', 'json', or 'csv'")
+
+    logger.info("Benchmark report saved to: %s", report_path)
+    return report_path
 
 class BenchmarkRunner:
     """
-    Orchestrates running multiple TestRunners on multiple models,
+    Enables running multiple TestRunners on multiple models,
     aggregates their outputs into a single benchmark dataset,
     and runs multiple evaluation functions on the generated results.
 
     Outputs:
-    - benchmark_dataset.(json|jsonl|csv)
-    - benchmark_report.(json|jsonl|csv)
+    - benchmark_dataset.(jsonl|csv)
+    - benchmark_report.jsonl
     """
 
     def __init__(
@@ -99,6 +121,7 @@ class BenchmarkRunner:
         models: list[ModelSpec],
         evaluations: list[EvaluationSpec],
         system_prompt: str | list[str] = "",
+        dataset_splits: list[str] | None = None,
         output_dir: str = "benchmarks",
         output_format: str = "jsonl",
         report_format: str = "jsonl",
@@ -110,6 +133,7 @@ class BenchmarkRunner:
         self.models = models
         self.evaluations = evaluations
         self.system_prompt = system_prompt
+        self.dataset_splits = dataset_splits
         self.output_dir = output_dir
         self.output_format = output_format
         self.report_format = report_format
@@ -118,7 +142,6 @@ class BenchmarkRunner:
     async def run(self, selection: str | None = None) -> dict:
         """Execute the full benchmark pipeline."""
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        benchmark_root = make_benchmark_root(self.output_dir, self.test_name)
 
         all_dfs: list[pd.DataFrame] = []
         report_rows: list[dict] = []
@@ -133,23 +156,25 @@ class BenchmarkRunner:
                 model_name=model.model_name,
                 prompt_builder=self.prompt_builder,
                 system_prompt=self.system_prompt,
+                dataset_splits=self.dataset_splits,
+                output_format=self.output_format,
                 max_concurrency=self.max_concurrency
             )
             results_path = await runner.run_model(selection=selection)
 
-            df = load_results_df(results_path, self.test_name, model)
+            df = load_results_df(results_path, self.test_name, model, output_format=self.output_format)
             all_dfs.append(df)
 
             for eval_spec in self.evaluations:
-                report = await run_evaluation(eval_spec, results_path, self.test_name, model)
+                report = await run_evaluation(eval_spec, results_path, self.test_name, model, self.system_prompt)
                 report_rows.append(report)
 
         benchmark_df = pd.concat(all_dfs, ignore_index=True)
 
-        dataset_path = os.path.join(benchmark_root, f"benchmark_dataset.{self.output_format}")
-        save_benchmark_dataset(benchmark_df, dataset_path, self.output_format)
+        dataset_path = resolve_benchmark_path(benchmark_name=self.test_name,output_format=self.output_format,kind="dataset",base_dir=self.output_dir,timestamp=timestamp,output_path=None)
+        report_path = resolve_benchmark_path(benchmark_name=self.test_name,output_format=self.report_format,kind="report",base_dir=self.output_dir,timestamp=timestamp,output_path=None)
 
-        report_path = os.path.join(benchmark_root,f"benchmark_report.{self.report_format}")
+        save_benchmark_dataset(benchmark_df, dataset_path, self.output_format)
         save_benchmark_report(report_rows, report_path, self.report_format)
 
         logger.info("Benchmark completed successfully")
@@ -161,5 +186,4 @@ class BenchmarkRunner:
             "models": [f"{m.provider}:{m.model_name}" for m in self.models],
             "selection": selection,
             "timestamp": timestamp
-
         }
