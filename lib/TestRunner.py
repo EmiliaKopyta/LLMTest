@@ -2,6 +2,7 @@ import os
 import asyncio
 import pandas as pd
 from datetime import datetime
+from typing import Any
 from lib.PromptHandler import PromptHandler
 from lib.data.DatasetLoader import DatasetLoader
 import logging
@@ -16,26 +17,44 @@ async def generate_single_response(handler, prompt, idx: int):
     except Exception as e:
         logger.warning("Skipping row %s due to error: %s", idx, e, exc_info=True)
         return None
+    
+def validate_prompt_output(prompt: Any, idx: int | None = None) -> None:
+    """Validate that prompt_builder returned a supported prompt type."""
+    if prompt is None:
+        return
+    if isinstance(prompt, str):
+        return
+    if isinstance(prompt, (list, tuple)):
+        return
+
+    where = f" (row {idx})" if idx is not None else ""
+    raise TypeError(
+        f"prompt_builder must return str | Sequence[UserContent] | None{where}, "
+        f"got: {type(prompt)}"
+    )
 
 async def generate_sequential(df: pd.DataFrame, prompt_builder, handler):
     """Generates responses sequentially."""
     answers = []
     for idx, row in df.iterrows():
         prompt = prompt_builder(row)
+        validate_prompt_output(prompt, idx)
         output = await generate_single_response(handler, prompt, idx)
         answers.append(output)
     return answers
 
 async def generate_concurrent(df: pd.DataFrame, prompt_builder, handler, max_concurrency: int):
-    """Generates responses cocurrently."""
+    """Generates responses concurrently."""
     sem = asyncio.Semaphore(max_concurrency)
 
-    async def safe_generate(idx, prompt):
+    async def safe_generate(idx, row):
         async with sem:
+            prompt = prompt_builder(row)
+            validate_prompt_output(prompt, idx)
             return await generate_single_response(handler, prompt, idx)
 
     tasks = [
-        safe_generate(idx, prompt_builder(row))
+        safe_generate(idx, row)
         for idx, row in df.iterrows()
     ]
     responses = await asyncio.gather(*tasks, return_exceptions=False)
