@@ -1,21 +1,39 @@
 import ast
 import os
+import re
 import json
 import pandas as pd
 
-
-def normalize(text: str) -> str:
-    """Normalize text to lowercase stripped string."""
+def normalize(text: str, ignore_case: bool = True) -> str:
+    """Normalize text to stripped string (optionally case-insensitive) with normalized whitespace."""
     if text is None:
         return ""
-    return str(text).strip().lower()
 
+    s = str(text)
+    s = s.replace("\u00a0", " ")
+    s = " ".join(s.strip().split())
+    s = s.strip().strip('"').strip("'")
+
+    if ignore_case:
+        s = s.lower()
+    return s
+
+def strip_choice_prefix(text: str) -> str:
+    """
+    Remove leading multiple-choice prefixes like:
+      "A. ", "b) ", "C: ", "d - "
+    but do NOT touch numeric decimals like "0.242" (because it starts with a digit).
+    """
+    if text is None:
+        return ""
+    s = str(text).strip()
+    return re.sub(r"^\s*([A-Da-d])\s*[\.\)\:\-]\s*", "", s).strip()
 
 def parse_choices(raw):
     """Normalize the 'choices' column into a list of strings."""
     if isinstance(raw, list):
         return [str(c).strip() for c in raw]
-    
+
     if isinstance(raw, str):
         try:
             parsed = ast.literal_eval(raw)
@@ -25,8 +43,8 @@ def parse_choices(raw):
             pass
         cleaned = raw.strip("[]").replace("'", "").replace('"', "")
         return [c.strip() for c in cleaned.split() if c]
-    return [str(raw).strip()]
 
+    return [str(raw).strip()]
 
 def load_jsonl(path: str) -> pd.DataFrame:
     """Load JSONL file into a DataFrame with validation."""
@@ -42,7 +60,7 @@ def load_jsonl(path: str) -> pd.DataFrame:
         raise ValueError("File is empty.")
     return df
 
-def evaluate_row_index_mode(row, answer_column, model_answer_column, choices_column):
+def evaluate_row_index_mode(row, answer_column, model_answer_column, choices_column, ignore_case: bool):
     """Evaluate a row assuming the correct answer is an index into choices."""
     choices = parse_choices(row[choices_column])
     raw_answer = row[answer_column]
@@ -54,41 +72,46 @@ def evaluate_row_index_mode(row, answer_column, model_answer_column, choices_col
     if idx < 0 or idx >= len(choices):
         raise ValueError(f"Index {idx} out of range for choices: {choices}")
 
-    correct_answer = normalize(choices[idx])
+    correct_answer = normalize(choices[idx], ignore_case=ignore_case)
     correct_letter = chr(65 + idx).lower()
 
     return correct_answer, correct_letter
 
-def evaluate_row_text_mode(row, answer_column):
+def evaluate_row_text_mode(row, answer_column, ignore_case: bool):
     """Evaluate a row assuming the correct answer is a text string."""
     raw_answer = row[answer_column]
-    correct_answer = normalize(raw_answer)
+    correct_answer = normalize(raw_answer, ignore_case=ignore_case)
     correct_letter = None
     return correct_answer, correct_letter
 
-def evaluate_row(row, answer_column, model_answer_column, choices_column, mode="index"):
+def evaluate_row(row, answer_column, model_answer_column, choices_column, mode="index", ignore_case: bool = True):
     """Evaluate a single row using explicit mode: 'index' or 'text'."""
     if choices_column not in row or answer_column not in row or model_answer_column not in row:
         raise KeyError("Row is missing required fields.")
 
     if mode == "index":
         correct_answer, correct_letter = evaluate_row_index_mode(
-            row, answer_column, model_answer_column, choices_column
+            row, answer_column, model_answer_column, choices_column, ignore_case=ignore_case
         )
     elif mode == "text":
         correct_answer, correct_letter = evaluate_row_text_mode(
-            row, answer_column
+            row, answer_column, ignore_case=ignore_case
         )
     else:
         raise ValueError("mode must be 'index' or 'text'")
 
-    model_answer = normalize(row[model_answer_column])
-    if len(model_answer) > 2 and model_answer[1] == ".":
-        model_answer = model_answer[2:].strip()
+    raw_model_answer = row[model_answer_column]
+    raw_model_answer_str = "" if raw_model_answer is None else str(raw_model_answer).strip()
+
+    model_answer_letter = normalize(raw_model_answer_str, ignore_case=True)
+    is_letter_only = bool(re.fullmatch(r"[a-d]", model_answer_letter))
+
+    cleaned_model_answer = strip_choice_prefix(raw_model_answer_str)
+    model_answer = normalize(cleaned_model_answer, ignore_case=ignore_case)
 
     is_correct = (
         model_answer == correct_answer or
-        (correct_letter and model_answer.startswith(correct_letter))
+        (correct_letter and (is_letter_only and model_answer_letter == correct_letter))
     )
 
     mismatch = None
@@ -96,7 +119,7 @@ def evaluate_row(row, answer_column, model_answer_column, choices_column, mode="
         mismatch = {
             "question": row.get("question", ""),
             "expected": correct_answer,
-            "predicted": row[model_answer_column],
+            "predicted": raw_model_answer,
         }
 
     return is_correct, mismatch
@@ -126,9 +149,10 @@ def evaluate_accuracy(
     answer_column: str = "answer",
     model_answer_column: str = "model_answer",
     choices_column: str = "choices",
-    mode = "index",
+    mode: str = "index",
     max_mismatches: int = 10,
-    output_path: str = None
+    output_path: str = None,
+    ignore_case: bool = True
 ):
     """
     Evaluate accuracy for a multiple-choice task stored in JSONL format.
@@ -150,6 +174,8 @@ def evaluate_accuracy(
         Maximum number of mismatches to include in the report.
     output_path : str, optional
         Path to save the evaluation summary as JSONL.
+    ignore_case : bool, default=True
+        If True, comparison is case-insensitive (recommended for units like GeV vs gev).
 
     Returns:
     dict
@@ -159,9 +185,6 @@ def evaluate_accuracy(
         - `correct`: int, number of correct predictions
         - `incorrect`: int, number of incorrect predictions
         - `mismatches`: list of dicts with up to `max_mismatches` examples
-
-    Example:
-    >>> report = evaluate_accuracy_jsonl(input_path)
     """
     df = load_jsonl(input_path)
 
@@ -170,12 +193,22 @@ def evaluate_accuracy(
         if col not in df.columns:
             raise KeyError(f"Missing required column: {col}")
 
+    if max_mismatches < 0:
+        raise ValueError("max_mismatches must be non-negative.")
+
     total = 0
     correct = 0
     mismatches = []
 
     for _, row in df.iterrows():
-        is_correct, mismatch = evaluate_row(row, answer_column, model_answer_column, choices_column, mode=mode)
+        is_correct, mismatch = evaluate_row(
+            row,
+            answer_column,
+            model_answer_column,
+            choices_column,
+            mode=mode,
+            ignore_case=ignore_case
+        )
         total += 1
         if is_correct:
             correct += 1
@@ -183,8 +216,6 @@ def evaluate_accuracy(
             mismatches.append(mismatch)
 
     result = summarize_results(total, correct, mismatches)
-    if max_mismatches < 0:
-        raise ValueError("max_mismatches must be non-negative.")
     result["mismatches"] = mismatches[:max_mismatches]
 
     if output_path:
