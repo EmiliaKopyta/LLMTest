@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 @dataclass
 class ProviderKeys:
     """
-    Utility class for dynamically loading provider API keys from environment variables.
+    Utility class for loading provider API keys from environment variables.
 
     Keys are discovered automatically based on the naming convention: *_API_KEY.
     All matching variables are collected into the `keys` dictionary.
