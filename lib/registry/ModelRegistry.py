@@ -37,15 +37,15 @@ class ModelRegistry:
     _registry: dict[str, dict[str, Any]] = {}
 
     @classmethod
-    def register_model(cls, provider: str, model_name: str, model: Any):
+    def register_model(cls, provider_name: str, model_name: str, model: Any):
         """Register a model under the given provider name."""
-        provider_key = provider.lower()
+        provider_key = provider_name.lower()
         cls._registry.setdefault(provider_key, {})[model_name] = model
 
     @classmethod
-    def get_model(cls, provider: str, model_name: str) -> Any:
+    def get_model(cls, provider_name: str, model_name: str) -> Any:
         """Retrieve a model instance by provider and model name."""
-        return cls._registry.get(provider.lower(), {}).get(model_name)
+        return cls._registry.get(provider_name.lower(), {}).get(model_name)
     
     @classmethod
     def list_providers(cls) -> list[str]:
@@ -53,10 +53,10 @@ class ModelRegistry:
         return list(cls._registry.keys())
 
     @classmethod
-    def list_models(cls, provider: str) -> list[str]:
+    def list_models(cls, provider_name: str) -> list[str]:
         """Return a list of all models available for the given provider."""
-        return list(cls._registry.get(provider.lower(), {}).keys())
-    
+        return list(cls._registry.get(provider_name.lower(), {}).keys())
+
     @classmethod
     def register_provider(cls, provider: "BaseProviderConfig"):
         """
