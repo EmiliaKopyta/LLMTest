@@ -77,7 +77,13 @@ class ModelRegistry:
         if pname in cls._registry:
             raise ValueError(f"Provider '{pname}' is already registered.")
 
-        provider.register_models()
+        try:
+            provider.register_models()
+        except Exception as e:
+            logger.warning(
+                "Skipping provider '%s': failed to register models (%s)", pname, e, exc_info=True)
+            return
+        
         logger.info("Registered provider '%s'", pname)
 
     @classmethod
