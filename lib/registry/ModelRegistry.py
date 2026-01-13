@@ -87,6 +87,18 @@ class ModelRegistry:
         logger.info("Registered provider '%s'", pname)
 
     @classmethod
+    def remove_provider(cls, provider_name: str):
+        """Remove an entire provider (and all its registered models) from the registry."""
+        pname = provider_name.lower()
+
+        if pname not in cls._registry:
+            logger.warning("Provider '%s' is not registered. Nothing to remove.", pname)
+            return
+
+        del cls._registry[pname]
+        logger.info("Provider '%s' removed from registry", pname)
+
+    @classmethod
     def add_model(cls, provider_name: str, model_name: str, model_obj: object):
         """
         Register a new model under an existing provider.
