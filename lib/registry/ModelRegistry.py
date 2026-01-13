@@ -1,6 +1,7 @@
 from typing import Any, TYPE_CHECKING
 import os
 import logging
+from lib.config.ProviderKeys import ProviderKeys
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,10 @@ class ModelRegistry:
         pname = provider.provider_name.lower()
         env_key = f"{pname.upper()}_API_KEY"
 
-        if not os.environ.get(env_key):
+        keys = ProviderKeys()
+        api_key = keys.keys.get(env_key)
+
+        if not api_key:
             logger.warning("Skipping provider '%s': missing %s", pname, env_key)
             return
 
