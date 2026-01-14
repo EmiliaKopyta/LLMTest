@@ -62,7 +62,7 @@ async def generate_concurrent(df: pd.DataFrame, prompt_builder, handler, max_con
 
 async def generate_answers(df: pd.DataFrame, prompt_builder, handler, max_concurrency: int):
     """Router for choosing the type of response generation."""
-    if max_concurrency == 0:
+    if max_concurrency <= 1:
         logger.info("Running sequential generation (%d rows)", len(df))
         return await generate_sequential(df, prompt_builder, handler)
     else:
