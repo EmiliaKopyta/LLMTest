@@ -20,7 +20,7 @@ class DatasetLoader:
     }
 
     @staticmethod
-    def load(path: str, split: Optional[str] = None, recursive: bool = True) -> pd.DataFrame:
+    def load(path: str, split: Optional[str] = None) -> pd.DataFrame:
         """
         Load a dataset from a local file or Hugging Face-hosted file.
 
@@ -43,7 +43,7 @@ class DatasetLoader:
         if path.startswith("hf://"):
             return DatasetLoader._load_huggingface(path, split)
         elif os.path.isdir(path):
-            return DatasetLoader._load_from_folder(path, recursive)
+            return DatasetLoader._load_from_folder(path)
         else:
             return DatasetLoader._load_local_file(path)
 
@@ -68,7 +68,7 @@ class DatasetLoader:
         ext = next((e for e in DatasetLoader.LOADERS if path.endswith(e)), None)
         if not ext:
             raise ValueError(
-                f"Unsupported Hugging Face file format: {path}. "
+                f"Unsupported file format: {path}. "
                 f"Supported formats: {', '.join(DatasetLoader.LOADERS)}"
             )
 
