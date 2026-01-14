@@ -25,7 +25,6 @@ class BaseProviderConfig(ABC):
 
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key
-        self._models: dict[str, Any] = {}
 
     @property
     @abstractmethod
