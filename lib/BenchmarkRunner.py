@@ -124,7 +124,7 @@ class BenchmarkRunner:
         dataset_splits: list[str] | None = None,
         output_dir: str = "benchmarks",
         output_format: str = "jsonl",
-        report_format: str = "jsonl",
+        report_format: str = "json",
         max_concurrency: int = 10
     ):
         self.test_name = test_name
@@ -187,3 +187,4 @@ class BenchmarkRunner:
             "selection": selection,
             "timestamp": timestamp
         }
+
