@@ -55,7 +55,7 @@ async def evaluate_llm_judge_prompt_only(
     input_path: str,
     judge_prompt: str,
     model_provider: str = "openai",
-    model_name: str = "gpt-4",
+    model_name: str = "gpt-4o",
     prompt_column: str = "prompt",
     max_mismatches: int = 10,
     output_path: str = None
