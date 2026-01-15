@@ -92,7 +92,7 @@ def plot_confusion_matrix(confusion: dict):
     if df_conf.empty:
         raise ValueError("Confusion matrix DataFrame is empty.")
     try:
-        df_conf = df_conf.astype(int)
+        df_conf = pd.DataFrame.from_dict(confusion, orient="index").fillna(0).astype(int)
     except ValueError as e:
         raise ValueError(f"Confusion matrix contains non-numeric values: {e}")
 
