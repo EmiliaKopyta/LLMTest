@@ -43,6 +43,20 @@ def compute_rouge_scores(data, reference_column="summary", model_answer_column="
 
     return rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores
 
+def build_per_sample_rouge(data: list[dict], rouge1_f1_scores: list[float], rouge2_f1_scores: list[float], rougel_f1_scores: list[float], reference_column: str = "summary", model_answer_column: str = "model_answer", prefix: str = "rouge") -> list[dict]:
+        """Build per-sample ROUGE results with sample_id and scores."""
+        rows = []
+        for sample_id, (item, r1, r2, rl) in enumerate(zip(data, rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores)):
+            rows.append({
+                "sample_id": sample_id,
+                f"{prefix}1_f1": round(r1, 4),
+                f"{prefix}2_f1": round(r2, 4),
+                f"{prefix}L_f1": round(rl, 4),
+                f"{prefix}_reference": item.get(reference_column, ""),
+                f"{prefix}_predicted": item.get(model_answer_column, "")
+        })
+        return rows
+
 def summarize_rouge(rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores):
     """Summarize average ROUGE scores into a result dictionary."""
     total = len(rouge1_f1_scores)
@@ -60,27 +74,23 @@ def save_report_jsonl(result: dict, output_path: str):
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
     except Exception as e:
         raise IOError(f"Failed to save results to {output_path}: {e}")
-    
-def collect_rouge_mismatches(
-    data: list[dict],
-    reference_column: str,
-    model_answer_column: str,
-    rougeL_f1_scores,
-    max_mismatches: int = 10
-) -> list[dict]:
+
+def collect_rouge_mismatches(data: list[dict], reference_column: str, model_answer_column: str, rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores, max_mismatches: int = 10) -> list[dict]:
     """Collect worst-scoring examples from ROUGE evaluation."""
     if max_mismatches < 0:
         raise ValueError("max_mismatches must be non-negative.")
 
-    if len(data) != len(rougeL_f1_scores):
-        raise ValueError("Length mismatch between data and rougeL_f1_scores.")
+    if not (len(data) == len(rouge1_f1_scores) == len(rouge2_f1_scores) == len(rougel_f1_scores)):
+        raise ValueError("Length mismatch between data and ROUGE score lists.")
 
     mismatches = []
-    for item, f in zip(data, rougeL_f1_scores):
+    for item, r1, r2, rl in zip(data, rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores):
         mismatches.append({
             "reference": item.get(reference_column, ""),
             "predicted": item.get(model_answer_column, ""),
-            "rougeL_f1": round(float(f), 4)
+            "rouge1_f1": round(float(r1), 4),
+            "rouge2_f1": round(float(r2), 4),
+            "rougeL_f1": round(float(rl), 4)
         })
 
     mismatches = sorted(mismatches, key=lambda x: x["rougeL_f1"])
@@ -126,15 +136,29 @@ def evaluate_rouge(
     Example:
     >>> report = evaluate_rouge("results.jsonl", "rouge_report.jsonl")
     """
+
     data = load_jsonl(input_path)
     rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores = compute_rouge_scores(
         data, reference_column, model_answer_column, case_sensitive=case_sensitive
     )
-    result = summarize_rouge(rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores)
 
-    result["mismatches"] = collect_rouge_mismatches(data, reference_column, model_answer_column, rougel_f1_scores, max_mismatches)
+    per_sample = build_per_sample_rouge(
+        data, rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores,
+        reference_column, model_answer_column, prefix="rouge"
+    )
+    mismatches = collect_rouge_mismatches(
+        data, reference_column, model_answer_column,
+        rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores,
+        max_mismatches
+    )
+
+    metrics = summarize_rouge(rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores)
 
     if output_path:
-        save_report_jsonl(result, output_path)
+        save_report_jsonl(metrics, output_path)
 
-    return result
+    return {
+        "metrics": metrics,
+        "per_sample": per_sample,
+        "mismatches": mismatches
+    }
