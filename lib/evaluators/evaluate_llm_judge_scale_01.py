@@ -26,39 +26,54 @@ def parse_score(output: str) -> tuple[float, bool]:
         if match:
             return float(match.group(1)), False
         return 0.0, True
+    
+def build_per_sample_judge(judged_results: list[dict], prefix: str = "judge") -> list[dict]:
+    """Build per-sample rows keyed by sample_id."""
+    rows = []
+    for j in judged_results:
+        rows.append({
+            "sample_id": int(j["sample_id"]),
+            f"{prefix}.score": float(j["score"]),
+            f"{prefix}.invalid": int(bool(j.get("invalid"))),
+            f"{prefix}.prompt": j.get("prompt", ""),
+            f"{prefix}.model_answer": j.get("model_answer", ""),
+            f"{prefix}.reference": j.get("reference", "")
+        })
+    return rows
 
-def summarize_results(judged_results: list[dict], max_mismatches: int = 10) -> dict:
-    if max_mismatches < 0:
-        raise ValueError("max_mismatches must be non-negative.")
+def summarize_results(judged_results: list[dict]) -> dict:
+    """Compute aggregate judge metrics."""
     total = len(judged_results)
     avg_score = round(sum(j["score"] for j in judged_results) / total, 4) if total > 0 else 0.0
-    mismatches = sorted(judged_results, key=lambda x: x["score"])[:max_mismatches]
-    invalid_cases = [j for j in judged_results if j.get("invalid")]
+    invalid_count = sum(1 for j in judged_results if j.get("invalid"))
     return {
         "samples": total,
         "average_score": avg_score,
-        "mismatches": mismatches,
-        "invalid_cases": invalid_cases
+        "invalid_count": invalid_count
     }
 
+def collect_invalid_cases(judged_results: list[dict]) -> list[dict]:
+    """Collect judge outputs that were invalid."""
+    return [j for j in judged_results if j.get("invalid")]
+
+def collect_judge_mismatches(judged_results: list[dict], max_mismatches: int = 10) -> list[dict]:
+    """Collect worst-scoring examples."""
+    if max_mismatches < 0:
+        raise ValueError("max_mismatches must be non-negative.")
+    return sorted(judged_results, key=lambda x: x["score"])[:max_mismatches]
+
 def save_jsonl(data: list[dict], output_path: str):
+    """Save data into a JSONL file."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         for item in data:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
-async def judge_example(
-    example: dict,
-    judge_prompt: str,
-    prompt_handler: PromptHandler,
-    prompt_column: str = "prompt",
-    reference_column: str = "reference",
-    use_reference: bool = True
-) -> dict:
-    """Evaluate a single example using the judge prompt, optionally with reference."""
+async def judge_example(example: dict, judge_prompt: str, prompt_handler: PromptHandler, sample_id: int, prompt_column: str = "prompt", reference_column: str = "reference", use_reference: bool = True) -> dict:
+    """Evaluate one example using judge prompt."""
     model_answer = example.get("model_answer", "").strip()
     prompt = example.get(prompt_column, "").strip()
-    reference = example.get(reference_column, "").strip() if use_reference else None
+    reference = example.get(reference_column, "").strip() if use_reference else ""
 
     full_prompt = f"{judge_prompt.strip()}\n\nPrompt: {prompt}\n\n"
     if use_reference and reference:
@@ -70,10 +85,11 @@ async def judge_example(
     score, invalid = parse_score(response.output)
 
     result = {
+        "sample_id": int(sample_id),
         "prompt": prompt,
         "model_answer": model_answer,
-        "score": score,
-        "invalid": invalid
+        "score": float(score),
+        "invalid": bool(invalid)
     }
     if use_reference:
         result["reference"] = reference
@@ -139,19 +155,29 @@ async def evaluate_llm_judge_scale_01(
     prompt_handler = PromptHandler(model_name=model_name, provider=model_provider, system_prompt="")
 
     judged_results = []
-    for example in results:
+    for i, example in enumerate(results):
         judged_results.append(await judge_example(
             example,
             judge_prompt,
             prompt_handler,
+            sample_id=i,
             prompt_column=prompt_column,
             reference_column=reference_column,
             use_reference=use_reference
         ))
 
-    result_summary = summarize_results(judged_results, max_mismatches)
+    metrics = summarize_results(judged_results)
+    mismatches = collect_judge_mismatches(judged_results, max_mismatches=max_mismatches)
+    invalid_cases = collect_invalid_cases(judged_results)
+
+    per_sample = build_per_sample_judge(judged_results, prefix="judge")
 
     if output_path:
         save_jsonl(judged_results, output_path)
 
-    return result_summary
+    return {
+        "metrics": metrics,
+        "per_sample": per_sample,
+        "mismatches": mismatches,
+        "invalid_cases": invalid_cases
+    }
