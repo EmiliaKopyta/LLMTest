@@ -24,6 +24,20 @@ def _is_float(value: str) -> bool:
         return True
     except Exception:
         return False
+    
+def build_judge_prompt(judge_prompt: str, prompt: str, model_answer: str) -> str:
+    """Build full prompt to send to judge model."""
+    return (
+        f"{judge_prompt.strip()}\n\n"
+        f"Prompt:\n{prompt.strip()}\n\n"
+        f"Model Answer:\n{model_answer.strip()}\n\n"
+        f"Please respond according to the criteria above."
+    )
+
+async def run_llm_judgment(full_prompt: str, prompt_handler: PromptHandler) -> str:
+    """Send prompt to LLM and return stripped response."""
+    response = await prompt_handler.generate_response(full_prompt)
+    return (response.output or "").strip()
 
 def collect_mismatches(judged_results: list[dict], max_mismatches: int = 10) -> list[dict]:
     """
@@ -98,39 +112,37 @@ async def evaluate_llm_judge_prompt_only(
     Example:
     >>> summary = await evaluate_llm_judge_prompt_only(input_path=input_path,judge_prompt=judge_prompt)
     """
-    results = load_jsonl(input_path)
+    data = load_jsonl(input_path)
     prompt_handler = PromptHandler(model_name=model_name, provider=model_provider, system_prompt="")
 
-    judged_results = []
-    for example in results:
-        prompt = (example.get(prompt_column) or "N/A").strip()
-        model_answer = (example.get("model_answer") or "N/A").strip()
+    per_sample = []
 
-        full_prompt = (
-            f"{judge_prompt.strip()}\n\n"
-            f"Prompt:\n{prompt}\n\n"
-            f"Model Answer:\n{model_answer}\n\n"
-            f"Please respond according to the criteria above."
-        )
+    for i, example in enumerate(data):
+        prompt = (example.get(prompt_column) or "N/A")
+        model_answer = (example.get("model_answer") or "N/A")
+        
+        full_prompt = build_judge_prompt(judge_prompt, prompt, model_answer)
+        judgment = await run_llm_judgment(full_prompt, prompt_handler)
 
-        response = await prompt_handler.generate_response(full_prompt)
-        judgment = (response.output or "").strip()
-
-        judged_results.append({
-            "prompt": prompt,
-            "model_answer": model_answer,
-            "judgment": judgment
+        per_sample.append({
+            "sample_id": i,
+            "judge.prompt": prompt.strip(),
+            "judge.model_answer": model_answer.strip(),
+            "judge.judgment": judgment
         })
 
-    mismatches = collect_mismatches(judged_results, max_mismatches)
+    mismatches = collect_mismatches(per_sample, max_mismatches=max_mismatches)
 
-    result_summary = {
-        "samples": len(judged_results),
-        "judgments": judged_results,
-        "mismatches": mismatches
+    metrics = {
+        "samples": len(per_sample),
+        "text_judgments": sum(1 for x in per_sample if x["judge.judgment"])
     }
 
     if output_path:
-        save_jsonl(judged_results, output_path)
+        save_jsonl(per_sample, output_path)
 
-    return result_summary
+    return {
+        "metrics": metrics,
+        "per_sample": per_sample,
+        "mismatches": mismatches
+    }
