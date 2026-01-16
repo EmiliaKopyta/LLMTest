@@ -10,9 +10,10 @@ def normalize(text: str, ignore_case: bool = True) -> str:
         return ""
 
     s = str(text)
-    s = s.replace("\u00a0", " ")
+    s = s.replace("\u00a0", " ") #whitespace
     s = " ".join(s.strip().split())
-    s = s.strip().strip('"').strip("'")
+
+    s = s.strip().strip('"').strip("'") #quotes
 
     if ignore_case:
         s = s.lower()
@@ -103,10 +104,10 @@ def evaluate_row(row, answer_column, model_answer_column, choices_column, mode="
     raw_model_answer = row[model_answer_column]
     raw_model_answer_str = "" if raw_model_answer is None else str(raw_model_answer).strip()
 
-    model_answer_letter = normalize(raw_model_answer_str, ignore_case=True)
+    model_answer_letter = normalize(raw_model_answer_str, ignore_case=True) #accepting letter answer, (ex. A) before stripping prefix
     is_letter_only = bool(re.fullmatch(r"[a-d]", model_answer_letter))
 
-    cleaned_model_answer = strip_choice_prefix(raw_model_answer_str)
+    cleaned_model_answer = strip_choice_prefix(raw_model_answer_str) #stripping prefix
     model_answer = normalize(cleaned_model_answer, ignore_case=ignore_case)
 
     is_correct = (
@@ -114,17 +115,49 @@ def evaluate_row(row, answer_column, model_answer_column, choices_column, mode="
         (correct_letter and (is_letter_only and model_answer_letter == correct_letter))
     )
 
-    mismatch = None
-    if not is_correct:
-        mismatch = {
-            "question": row.get("question", ""),
-            "expected": correct_answer,
-            "predicted": raw_model_answer,
+    per_sample = {
+        "expected": correct_answer,
+        "predicted_raw": raw_model_answer,
+        "predicted_norm": model_answer,
+        "correct": int(is_correct),
+        "expected_letter": correct_letter,
+        "predicted_letter": model_answer_letter if is_letter_only else None,
+    }
+    return is_correct, per_sample
+
+def build_per_sample_accuracy(df, answer_column, question_column, model_answer_column, choices_column, mode, ignore_case):
+    """Build per-sample accuracy results with correctness and metadata."""
+    per_sample = []
+    total = 0
+    correct = 0
+
+    for sample_id, row in df.iterrows():
+        is_correct, sample = evaluate_row(
+            row, answer_column, model_answer_column, choices_column, mode=mode, ignore_case=ignore_case
+        )
+        sample["sample_id"] = sample_id
+
+        sample_out = {
+            "sample_id": sample_id,
+            "accuracy.question": row[question_column],
+            "accuracy.correct": sample["correct"],
+            "accuracy.expected": sample["expected"],
+            "accuracy.predicted_raw": sample["predicted_raw"],
+            "accuracy.predicted_norm": sample["predicted_norm"],
         }
+        per_sample.append(sample_out)
+        total += 1
+        correct += int(is_correct)
 
-    return is_correct, mismatch
+    return per_sample, total, correct
 
-def summarize_results(total, correct, mismatches):
+def collect_mismatches(per_sample: list[dict], max_mismatches: int) -> list[dict]:
+    """Select worst-scoring examples based on incorrect predictions."""
+    if max_mismatches < 0:
+        raise ValueError("max_mismatches must be non-negative.")
+    return [s for s in per_sample if s["accuracy.correct"] == 0][:max_mismatches]
+
+def summarize_results(total, correct):
     """Build the final evaluation report."""
     accuracy = correct / total if total > 0 else 0.0
     return {
@@ -132,14 +165,14 @@ def summarize_results(total, correct, mismatches):
         "total": total,
         "correct": correct,
         "incorrect": total - correct,
-        "mismatches": mismatches,
     }
 
-def save_report_jsonl(result: dict, output_path: str):
-    """Save evaluation report dictionary to a JSONL file."""
+def save_report_jsonl(metrics: dict, output_path: str):
+    """Save evaluation metrics to JSONL file."""
     try:
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
-            for key, value in result.items():
+            for key, value in metrics.items():
                 f.write(json.dumps({key: value}, ensure_ascii=False) + "\n")
     except Exception as e:
         raise IOError(f"Failed to save results to {output_path}: {e}")
@@ -147,6 +180,7 @@ def save_report_jsonl(result: dict, output_path: str):
 def evaluate_accuracy(
     input_path: str,
     answer_column: str = "answer",
+    question_column: str = "question",
     model_answer_column: str = "model_answer",
     choices_column: str = "choices",
     mode: str = "index",
@@ -188,37 +222,23 @@ def evaluate_accuracy(
     """
     df = load_jsonl(input_path)
 
-    required_cols = [answer_column, model_answer_column, choices_column]
+    required_cols = [answer_column, model_answer_column, choices_column, question_column]
     for col in required_cols:
         if col not in df.columns:
             raise KeyError(f"Missing required column: {col}")
 
-    if max_mismatches < 0:
-        raise ValueError("max_mismatches must be non-negative.")
-
-    total = 0
-    correct = 0
-    mismatches = []
-
-    for _, row in df.iterrows():
-        is_correct, mismatch = evaluate_row(
-            row,
-            answer_column,
-            model_answer_column,
-            choices_column,
-            mode=mode,
-            ignore_case=ignore_case
-        )
-        total += 1
-        if is_correct:
-            correct += 1
-        else:
-            mismatches.append(mismatch)
-
-    result = summarize_results(total, correct, mismatches)
-    result["mismatches"] = mismatches[:max_mismatches]
+    per_sample, total, correct = build_per_sample_accuracy(
+        df, answer_column, question_column, model_answer_column,
+        choices_column, mode, ignore_case
+    )
+    mismatches = collect_mismatches(per_sample, max_mismatches)
+    metrics = summarize_results(total, correct, mismatches)
 
     if output_path:
-        save_report_jsonl(result, output_path)
+        save_report_jsonl(metrics, output_path)
 
-    return result
+    return {
+        "metrics": metrics,
+        "per_sample": per_sample,
+        "mismatches": mismatches,
+    }
