@@ -64,6 +64,24 @@ def compute_stats(df, label_column="label", model_answer_column="model_answer"):
         "per_class": stats
     }
 
+def build_per_sample(df, label_column, model_answer_column) -> list[dict]:
+    """Build per-sample classification rows with sample_id and correctness."""
+    per_sample = []
+
+    for i, row in df.iterrows():
+        true_label = str(row[label_column]).strip().lower()
+        pred_label = str(row[model_answer_column]).strip().lower()
+
+        per_sample.append({
+            "sample_id": i,
+            "classification.text": row.get("text", ""),
+            "classification.expected": true_label,
+            "classification.predicted": pred_label,
+            "classification.correct": int(pred_label == true_label)
+        })
+
+    return per_sample
+
 def collect_mismatches(df, label_column="label", model_answer_column="model_answer", max_mismatches=10):
     """Collect mismatched predictions for inspection."""
     if label_column not in df.columns or model_answer_column not in df.columns:
@@ -82,6 +100,16 @@ def collect_mismatches(df, label_column="label", model_answer_column="model_answ
                 "predicted": row[model_answer_column]
             })
     return mismatches[:max_mismatches]
+
+def build_confusion_matrix(df, label_column, model_answer_column) -> dict:
+    """Build a confusion matrix (true_label -> predicted_label counts) from predictions."""
+    matrix = {}
+    for _, row in df.iterrows():
+        true_label = str(row[label_column]).strip().lower()
+        pred_label = str(row[model_answer_column]).strip().lower()
+        matrix.setdefault(true_label, {})
+        matrix[true_label][pred_label] = matrix[true_label].get(pred_label, 0) + 1
+    return matrix
 
 def plot_confusion_matrix(confusion: dict):
     """Plot a confusion matrix heatmap from a dict of counts."""
@@ -154,21 +182,32 @@ def evaluate_classification(
     >>> report = evaluate_classification_jsonl("results.jsonl", include_confusion=True)
     """
     df = load_jsonl(input_path)
+    
+    stats = compute_stats(df, label_column, model_answer_column)
+    per_sample = build_per_sample(df, label_column, model_answer_column)
+    mismatches = [s for s in per_sample if s["classification.correct"] == 0][:max_mismatches]
 
-    result = compute_stats(df, label_column, model_answer_column)
-    result["mismatches"] = collect_mismatches(df, label_column, model_answer_column, max_mismatches)
+    metrics = {
+        "accuracy": stats["accuracy"],
+        "total": stats["total"],
+        "correct": stats["correct"],
+        "incorrect": stats["incorrect"],
+        "macro_precision": stats["macro_precision"],
+        "macro_recall": stats["macro_recall"],
+        "macro_f1": stats["macro_f1"],
+        "per_class": stats["per_class"]
+    }
 
     if include_confusion:
-        confusion = {}
-        for _, row in df.iterrows():
-            true_label = str(row[label_column]).strip().lower()
-            pred_label = str(row[model_answer_column]).strip().lower()
-            confusion.setdefault(true_label, {})
-            confusion[true_label][pred_label] = confusion[true_label].get(pred_label, 0) + 1
-        result["confusion_matrix"] = confusion
+        confusion = build_confusion_matrix(df, label_column, model_answer_column)
+        metrics["confusion_matrix"] = confusion
         plot_confusion_matrix(confusion)
 
     if output_path:
-        save_jsonl(result, output_path)
+        save_jsonl(per_sample, output_path)
 
-    return result
+    return {
+        "metrics": metrics,
+        "per_sample": per_sample,
+        "mismatches": mismatches
+    }
