@@ -38,22 +38,37 @@ def load_results_df(results_path: str, test_name: str, model: ModelSpec, output_
     df["sample_id"] = df.index
     return df
 
+def attach_per_sample(df: pd.DataFrame, per_sample: list[dict]) -> pd.DataFrame:
+    """Helper method used when attaching evaluation scores to the result dataset."""
+    per_df = pd.DataFrame(per_sample)
+
+    if "sample_id" not in per_df.columns:
+        raise ValueError("per_sample must contain 'sample_id'")
+
+    return df.merge(per_df, on="sample_id", how="left", validate="one_to_one")
+
 async def run_evaluation(eval_spec: EvaluationSpec, results_path: str, test_name: str, model: ModelSpec, system_prompt: str | list[str]) -> dict:
     """Run a single evaluation on a model result file."""
     logger.info("Evaluating %s:%s with %s", model.provider, model.model_name, eval_spec.name)
     
     result = eval_spec.evaluator(results_path)
-    metrics = await result if asyncio.iscoroutine(result) else result
+    result = await result if asyncio.iscoroutine(result) else result
 
-    return {
+    metrics = result["metrics"]
+    per_sample = result["per_sample"]
+    mismatches = result.get("mismatches", [])
+
+    report_row = {
         "benchmark": test_name,
         "model": f"{model.provider}:{model.model_name}",
         "provider": model.provider,
         "model_name": model.model_name,
         "system_prompt": system_prompt,
         "evaluation": eval_spec.name,
-        "metrics": metrics
+        "metrics": metrics,
+        "mismatches": mismatches
     }
+    return report_row, per_sample
 
 def _ext_from_format(output_format: str) -> str:
     if output_format not in ("jsonl", "json", "csv"):
@@ -104,7 +119,7 @@ def save_benchmark_report(report_rows: list[dict], report_path: str, output_form
 
 class BenchmarkRunner:
     """
-    Enables running multiple TestRunners on multiple models,
+    Orchestrates running multiple TestRunners on multiple models,
     aggregates their outputs into a single benchmark dataset,
     and runs multiple evaluation functions on the generated results.
 
@@ -163,11 +178,21 @@ class BenchmarkRunner:
             results_path = await runner.run_model(selection=selection)
 
             df = load_results_df(results_path, self.test_name, model, output_format=self.output_format)
+            """
             all_dfs.append(df)
 
             for eval_spec in self.evaluations:
                 report = await run_evaluation(eval_spec, results_path, self.test_name, model, self.system_prompt)
                 report_rows.append(report)
+            """
+
+            for eval_spec in self.evaluations:
+                report_row, per_sample = await run_evaluation(eval_spec, results_path, self.test_name, model, self.system_prompt)
+                report_rows.append(report_row)
+
+                df = attach_per_sample(df, per_sample)
+
+            all_dfs.append(df)
 
         benchmark_df = pd.concat(all_dfs, ignore_index=True)
 
@@ -187,4 +212,3 @@ class BenchmarkRunner:
             "selection": selection,
             "timestamp": timestamp
         }
-
