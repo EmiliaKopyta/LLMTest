@@ -232,7 +232,7 @@ def evaluate_accuracy(
         choices_column, mode, ignore_case
     )
     mismatches = collect_mismatches(per_sample, max_mismatches)
-    metrics = summarize_results(total, correct, mismatches)
+    metrics = summarize_results(total, correct)
 
     if output_path:
         save_report_jsonl(metrics, output_path)
