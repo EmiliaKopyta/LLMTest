@@ -44,18 +44,19 @@ def compute_rouge_scores(data, reference_column="summary", model_answer_column="
     return rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores
 
 def build_per_sample_rouge(data: list[dict], rouge1_f1_scores: list[float], rouge2_f1_scores: list[float], rougel_f1_scores: list[float], reference_column: str = "summary", model_answer_column: str = "model_answer", prefix: str = "rouge") -> list[dict]:
-        """Build per-sample ROUGE results with sample_id and scores."""
-        rows = []
-        for sample_id, (item, r1, r2, rl) in enumerate(zip(data, rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores)):
-            rows.append({
-                "sample_id": sample_id,
-                f"{prefix}1_f1": round(r1, 4),
-                f"{prefix}2_f1": round(r2, 4),
-                f"{prefix}L_f1": round(rl, 4),
-                f"{prefix}_reference": item.get(reference_column, ""),
-                f"{prefix}_predicted": item.get(model_answer_column, "")
+    """Build per-sample ROUGE results with sample_id and scores."""
+    rows = []
+    for sample_id, (item, r1, r2, rl) in enumerate(zip(data, rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores)):
+        rows.append({
+            "sample_id": sample_id,
+            f"{prefix}1_f1": round(r1, 4),
+            f"{prefix}2_f1": round(r2, 4),
+            f"{prefix}L_f1": round(rl, 4),
+            f"{prefix}_reference": item.get(reference_column, ""),
+            f"{prefix}_predicted": item.get(model_answer_column, "")
         })
-        return rows
+        
+    return rows
 
 def summarize_rouge(rouge1_f1_scores, rouge2_f1_scores, rougel_f1_scores):
     """Summarize average ROUGE scores into a result dictionary."""
