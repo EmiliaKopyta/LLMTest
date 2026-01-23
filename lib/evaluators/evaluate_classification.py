@@ -130,11 +130,20 @@ def plot_confusion_matrix(confusion: dict):
     plt.xlabel("Predicted Label")
     plt.show()
 
-def save_jsonl(result: dict, output_path: str):
+def save_jsonl(rows: list[dict] | dict, output_path: str) -> None:
     """Save evaluation results to a JSONL file."""
     try:
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write(json.dumps(result, ensure_ascii=False) + "\n")
+            if isinstance(rows, list):
+                for row in rows:
+                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            elif isinstance(rows, dict):
+                f.write(json.dumps(rows, ensure_ascii=False) + "\n")
+            else:
+                raise TypeError(f"Expected list[dict] or dict, got {type(rows)}")
+
     except Exception as e:
         raise IOError(f"Failed to save results to {output_path}: {e}")
 
