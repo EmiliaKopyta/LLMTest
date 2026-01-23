@@ -47,9 +47,12 @@ def collect_mismatches(judged_results: list[dict], max_mismatches: int = 10) -> 
     if max_mismatches < 0:
         raise ValueError("max_mismatches must be non-negative.")
 
-    numeric_results = [j for j in judged_results if _is_float(j.get("judgment"))]
+    numeric_results = [j for j in judged_results if _is_float(j.get("judge.judgment"))]
     if numeric_results:
-        sorted_results = sorted(numeric_results, key=lambda x: float(str(x["judgment"]).replace(",", ".")))
+        sorted_results = sorted(
+            numeric_results,
+            key=lambda x: float(str(x["judge.judgment"]).replace(",", "."))
+        )
     else:
         sorted_results = judged_results
 
