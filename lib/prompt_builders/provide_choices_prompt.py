@@ -20,9 +20,9 @@ def provide_choices_prompt(row, q_col: str = "question", c_col: str = "choices")
         an "Answer:" suffix to indicate where the model should respond.
     """
     question = row[q_col]
-    choices = row[c_col]
+    raw_choices = row[c_col]
 
-    choices = parse_choices(row["choices"])
+    choices = parse_choices(raw_choices)
 
     choices_str = "\n".join(f"{chr(65+i)}. {c}" for i, c in enumerate(choices))
     return f"{question}\nOptions:\n{choices_str}\nAnswer:"
