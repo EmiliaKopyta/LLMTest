@@ -55,7 +55,7 @@ class PromptHandler:
 
     def _create_agent(self, model: Any, system_prompt: Optional[str]) -> Agent:
         """Wrap model in a pydantic_ai.Agent with optional system prompt."""
-        return Agent(model=model, system_prompt=system_prompt)
+        return Agent(model=model, system_prompt=system_prompt or "")
 
     async def generate_response(self, prompt: Union[str, Sequence[UserContent], None]) -> str:
         """
