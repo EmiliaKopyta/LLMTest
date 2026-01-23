@@ -64,7 +64,7 @@ def collect_judge_mismatches(judged_results: list[dict], max_mismatches: int = 1
 
 def save_jsonl(data: list[dict], output_path: str):
     """Save data into a JSONL file."""
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         for item in data:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
