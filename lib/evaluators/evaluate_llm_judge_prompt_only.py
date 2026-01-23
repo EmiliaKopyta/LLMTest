@@ -55,13 +55,20 @@ def collect_mismatches(judged_results: list[dict], max_mismatches: int = 10) -> 
 
     return sorted_results[:max_mismatches]
 
-def save_jsonl(data: list[dict], output_path: str):
+def save_jsonl(rows: list[dict] | dict, output_path: str) -> None:
     """Save dataset with attached judgments to JSONL file."""
     try:
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
         with open(output_path, "w", encoding="utf-8") as f:
-            for item in data:
-                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            if isinstance(rows, list):
+                for item in rows:
+                    f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            elif isinstance(rows, dict):
+                f.write(json.dumps(rows, ensure_ascii=False) + "\n")
+            else:
+                raise TypeError(f"Expected list[dict] or dict, got {type(rows)}")
+
     except Exception as e:
         raise IOError(f"Failed to save results to {output_path}: {e}")
 
