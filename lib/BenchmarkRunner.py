@@ -178,13 +178,6 @@ class BenchmarkRunner:
             results_path = await runner.run_model(selection=selection)
 
             df = load_results_df(results_path, self.test_name, model, output_format=self.output_format)
-            """
-            all_dfs.append(df)
-
-            for eval_spec in self.evaluations:
-                report = await run_evaluation(eval_spec, results_path, self.test_name, model, self.system_prompt)
-                report_rows.append(report)
-            """
 
             for eval_spec in self.evaluations:
                 report_row, per_sample = await run_evaluation(eval_spec, results_path, self.test_name, model, self.system_prompt)
@@ -212,3 +205,4 @@ class BenchmarkRunner:
             "selection": selection,
             "timestamp": timestamp
         }
+
