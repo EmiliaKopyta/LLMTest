@@ -27,8 +27,6 @@ def provide_choices_prompt(row, q_col: str = "question", c_col: str = "choices")
     choices_str = "\n".join(f"{chr(65+i)}. {c}" for i, c in enumerate(choices))
     return f"{question}\nOptions:\n{choices_str}\nAnswer:"
 
-import ast
-
 def parse_choices(raw):
     """
     Normalize the 'choices' column into a list of clean strings.
