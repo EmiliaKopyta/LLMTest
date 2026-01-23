@@ -1,5 +1,6 @@
 from .ModelRegistry import ModelRegistry
 from lib.providers import OpenAIConfig, AnthropicConfig, GoogleConfig, OpenRouterConfig
+from lib.config.logging import configure_logging
 import logging
 
 logger = logging.getLogger(__name__)
@@ -11,6 +12,8 @@ def register_all_models():
     Iterates over the built‑in provider classes (OpenAI, Anthropic, Google, OpenRouter),
     instantiates each configuration, and attempts to register it.
     """
+    configure_logging()
+
     for ProviderCls in [OpenAIConfig, AnthropicConfig, GoogleConfig, OpenRouterConfig]:
         try:
             config = ProviderCls()
