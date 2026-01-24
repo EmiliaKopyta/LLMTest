@@ -10,7 +10,6 @@ rouge-score = "*"
 bert-score = "*"
 pyarrow = "*"
 pandas = "*"
-scikit-learn = "*"
 seaborn = "*"
 
 [dev-packages]
